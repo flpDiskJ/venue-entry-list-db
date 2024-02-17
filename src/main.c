@@ -5,6 +5,8 @@
 #include <stdint.h>
 #include <time.h>
 
+// Code by Jake Aigner Feb, 2024
+
 #define INPUT_MAX 500
 #define ENTRY_LEN 12
 #define DB_START_SIZE 12
