@@ -3,25 +3,31 @@
 #include <string.h>
 #include <stdbool.h>
 #include <stdint.h>
+#include <time.h>
 
 #define INPUT_MAX 500
+#define ENTRY_LEN 12
+#define DB_START_SIZE 12
 
-typedef struct eList{
-    char first_name[12];
-    char last_name[12];
+struct eList{
+    char first_name[ENTRY_LEN];
+    char last_name[ENTRY_LEN];
     uint16_t id;
     bool paid;
     bool checked_in;
     bool empty;
-} eList;
-
-eList *entry_list;
-int position = 0;
+};
 
 typedef struct configFile{
     uint16_t size;
     char path[INPUT_MAX];
 } configFile;
+
+const char db_name[] = "entry_list_database.dtbs";
+
+struct eList *entry_list;
+uint16_t list_size = 0;
+uint16_t position = 0;
 
 configFile settings;
 
@@ -61,7 +67,7 @@ void load_config()
 void config()
 {
     settings.path[0] = '\0';
-    printf("        Database path: ");
+    printf("> Database path: ");
     fgets(settings.path, INPUT_MAX, stdin);
     settings.size = strlen(settings.path) - 1;
     char file[INPUT_MAX];
@@ -71,12 +77,272 @@ void config()
     FILE *fp = fopen(file, "wb");
     if (!fp)
     {
-        printf("        Error creating config file!\n");
+        printf("> Error creating config file!\n");
         return;
     }
     fwrite(&settings.size, 2, 1, fp);
     fwrite(&settings.path, 1, settings.size, fp);
     fclose(fp);
+}
+
+void erase_entry(int x) // clear entry_list[x]
+{
+    entry_list[x].first_name[0] = '\0';
+    entry_list[x].last_name[0] = '\0';
+    entry_list[x].id = 0;
+    entry_list[x].paid = false;
+    entry_list[x].checked_in = false;
+    entry_list[x].empty = true;
+}
+
+void init()
+{
+    load_config();
+    char file[INPUT_MAX];
+    file[0] = '\0';
+    strcpy(file, settings.path);
+    strncat(file, db_name, strlen(db_name)+1);
+    FILE *fp = fopen(file, "rb");
+    if (!fp)
+    {
+        list_size = DB_START_SIZE;
+        entry_list = malloc(sizeof(struct eList)*list_size);
+        for (int x = 0; x < list_size - 1; x++)
+        {
+            erase_entry(x);
+        }
+    } else {
+        fread(&list_size, 2, 1, fp);
+        entry_list = malloc(sizeof(struct eList)*list_size);
+        fread(&entry_list[0], sizeof(struct eList), list_size, fp);
+        fclose(fp);
+    }
+}
+
+void save_db()
+{
+    char file[INPUT_MAX];
+    file[0] = '\0';
+    strcpy(file, settings.path);
+    strncat(file, db_name, strlen(db_name)+1);
+    FILE *fp = fopen(file, "wb");
+    fwrite(&list_size, 2, 1, fp);
+    fwrite(&entry_list[0], sizeof(struct eList), list_size, fp);
+    fclose(fp);
+    printf("~ Database Saved\n");
+}
+
+int find_id(uint16_t id) // get entry position from ID. Returns -1 if ID is not found
+{
+    int entry = -1;
+    for (int x = 0; x < list_size - 1; x++)
+    {
+        if (id == entry_list[x].id)
+        {
+            entry = entry_list[x].id;
+        }
+    }
+    return entry;
+}
+
+void resize() // allocates more entries to database
+{
+    if (list_size + DB_START_SIZE >= 65536)
+    {
+        printf("> DB at max size!\n");
+        return;
+    }
+    int start = list_size;
+    list_size += DB_START_SIZE;
+    entry_list = realloc(entry_list, list_size);
+    printf("> New DB Size: %d\n", list_size);
+    for (int x = start; x < list_size - 1; x++)
+    {
+        erase_entry(x);
+    }
+}
+
+void add()
+{
+    int entry_id = 0;
+    while (!entry_list[entry_id].empty && entry_id < list_size)
+    {
+        entry_id++;
+    }
+    if (entry_id >= list_size)
+    {
+        resize();
+        while (!entry_list[entry_id].empty && entry_id < list_size)
+        {
+            entry_id++;
+        }
+    }
+    printf("> First Name: ");
+    fgets(entry_list[entry_id].first_name, ENTRY_LEN, stdin);
+    entry_list[entry_id].first_name[strlen(entry_list[entry_id].first_name)-1] = '\0';
+    printf("> Last Name: ");
+    fgets(entry_list[entry_id].last_name, ENTRY_LEN, stdin);
+    entry_list[entry_id].last_name[strlen(entry_list[entry_id].last_name)-1] = '\0';
+    uint16_t random_id = rand() % (65536 - 1000) + 1000;
+    while (find_id(random_id) != -1)
+    {
+        random_id = rand() % (65536 - 1000) + 1000;
+    }
+    entry_list[entry_id].id = random_id;
+    entry_list[entry_id].empty = false;
+    printf("> ID: %d\n", random_id);
+}
+
+void list_entry(int x)
+{
+    if (entry_list[x].empty){return;}
+    printf("~ %s %s\n", entry_list[x].first_name, entry_list[x].last_name);
+    printf("  ID: %d\n", entry_list[x].id);
+    if (entry_list[x].paid)
+    {
+        printf("  PAID\n");
+    } else {
+        printf("  NOT PAID\n");
+    }
+    if (entry_list[x].checked_in)
+    {
+        printf("  CHECKED IN\n");
+    } else {
+        printf("  ABSENT\n");
+    }
+    printf("\n");
+}
+
+void list_name(char *name)
+{
+    printf("\n");
+    // check first names
+    for (int x = 0; x < list_size - 1; x++)
+    {
+        if (strComp(&entry_list[x].first_name[0], name))
+        {
+            list_entry(x);
+        }
+    }
+    // check last names
+    for (int x = 0; x < list_size - 1; x++)
+    {
+        if (strComp(&entry_list[x].last_name[0], name))
+        {
+            list_entry(x);
+        }
+    }
+}
+
+void list_id(char *arg)
+{
+    printf("\n");
+    int id = atoi(arg);
+    for (int x = 0; x < list_size - 1; x++)
+    {
+        if (id == entry_list[x].id)
+        {
+            list_entry(x);
+        }
+    }
+}
+
+void check_in(char *arg)
+{
+    int id = atoi(arg);
+    for (int x = 0; x < list_size - 1; x++)
+    {
+        if (id == entry_list[x].id)
+        {
+            entry_list[x].checked_in = true;
+            entry_list[x].paid = true;
+            printf("~ Checked in %s %s\n", entry_list[x].first_name, entry_list[x].last_name);
+        }
+    }
+}
+
+void paid(char *arg)
+{
+    int id = atoi(arg);
+    for (int x = 0; x < list_size - 1; x++)
+    {
+        if (id == entry_list[x].id)
+        {
+            entry_list[x].paid = true;
+            printf("~ %s %s paid in advance\n", entry_list[x].first_name, entry_list[x].last_name);
+        }
+    }
+}
+
+void reset_all()
+{
+    for (int x = 0; x < list_size - 1; x++)
+    {
+        entry_list[x].checked_in = false;
+        entry_list[x].paid = false;
+    }
+    printf("~ All entries reset\n");
+}
+
+void reset(char *arg)
+{
+    int id = atoi(arg);
+    for (int x = 0; x < list_size - 1; x++)
+    {
+        if (id == entry_list[x].id)
+        {
+            entry_list[x].checked_in = false;
+            entry_list[x].paid = false;
+            printf("~ %s %s has been reset\n", entry_list[x].first_name, entry_list[x].last_name);
+        }
+    }
+}
+
+void remove_id(char *arg)
+{
+    int id = atoi(arg);
+    for (int x = 0; x < list_size - 1; x++)
+    {
+        if (id == entry_list[x].id)
+        {
+            printf("~ Removed %s %s\n", entry_list[x].first_name, entry_list[x].last_name);
+            erase_entry(x);
+        }
+    }
+}
+
+void rm_all()
+{
+    printf("~ Are you sure? > ");
+    char answer[INPUT_MAX];
+    answer[0] = '\0';
+    fgets(answer, INPUT_MAX, stdin);
+    if (strComp(answer, "yes\0"))
+    {
+        for (int x = 0; x < list_size - 1; x++)
+        {
+            erase_entry(x);
+        }
+        printf("~ Erased entire database\n");
+    }
+}
+
+void help()
+{
+    printf("Commands:\n");
+    printf("exit - save and quit\n");
+    printf("name (first or last) - list entry(s) with matching name\n");
+    printf("id (id) - list entry with matching id\n");
+    printf("in (id) - check in\n");
+    printf("clear - clear screen\n");
+    printf("save - save database\n");
+
+    printf("\n: Mod use ONLY! :\n");
+    printf("add - add entry and generate ID\n");
+    printf("add mem - allocate more entries\n");
+    printf("paid (id) - paid in advance\n");
+    printf("reset (id or all) - resets advance pay and check in\n");
+    printf("rm (id) - removes entry with matching id\n");
 }
 
 void shell()
@@ -93,21 +359,72 @@ void shell()
         char *token = strtok(input, " \n\t\r");
         strcpy(command, token);
         token = strtok(NULL, " \n\t\r");
+        if (token != NULL)
+        {
+            strcpy(arg, token);
+        }
 
         if (strComp(command, "config\0"))
         {
             config();
         } else if (strComp(command, "exit\0"))
         {
+            save_db();
             run = false;
+        } else if (strComp(command, "add\0"))
+        {
+            if (strComp(arg, "mem\0"))
+            {
+                resize();
+            } else {
+                add();
+            }
+        } else if (strComp(command, "help\0"))
+        {
+            help();
+        } else if (strComp(command, "name\0"))
+        {
+            list_name(&arg[0]);
+        } else if (strComp(command, "id\0"))
+        {
+            list_id(&arg[0]);
+        } else if (strComp(command, "clear\0"))
+        {
+            system("clear");
+        } else if (strComp(command, "in\0"))
+        {
+            check_in(&arg[0]);
+        } else if (strComp(command, "paid\0"))
+        {
+            paid(&arg[0]);
+        } else if (strComp(command, "reset\0"))
+        {
+            if (strComp(arg, "all\0"))
+            {
+                reset_all();
+            } else {
+                reset(&arg[0]);
+            }
+        } else if (strComp(command, "rm\0"))
+        {
+            if (strComp(arg, "all\0"))
+            {
+                rm_all();
+            } else {
+                remove_id(&arg[0]);
+            }
+        } else if (strComp(command, "save\0"))
+        {
+            save_db();
         }
     }
 }
 
 int main()
 {
+    srand((unsigned int)time(NULL)); // inits random number gen
     printf(":Entry List:\n");
-    load_config();
+    init();
     while (run)
     {
         shell();
